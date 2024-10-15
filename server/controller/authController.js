@@ -1,5 +1,6 @@
 import emailValidator from "email-validator";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import User from "../models/userModel.js";
 
 const signupContoller = async (req, res, next) => {
@@ -101,4 +102,138 @@ const signinController = async (req, res, next) => {
   }
 };
 
-export { signupContoller, signinController };
+const forgotPasswordController = async (req, res, next) => {
+  const email = req.body.email;
+  // if email is undefine or null
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      message: "Email is required!",
+    });
+  }
+
+  try {
+    const user = await User.findOne({ email: email });
+    console.log(email);
+    // if user not found
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "User not found!",
+      });
+    }
+    // if user found then generate forgot password token
+
+    const forgotPasswordToken = user.getForgotPasswordToken();
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      token: forgotPasswordToken,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const resetPasswordController = async (req, res, next) => {
+  const { token } = req.params;
+  const { password, confirmPassword } = req.body;
+  console.log(token, password, confirmPassword);
+
+  if (!password || !confirmPassword) {
+    return res.status(400).json({
+      success: false,
+      message: "both password and confirm password are required!",
+    });
+  }
+
+  if (password !== confirmPassword) {
+    return res.status(400).json({
+      success: false,
+      message: "password and confirm password does not match!",
+    });
+  }
+  // if password and confirm password matched then
+  const hashToken = crypto.createHash("sha256").update(token).digest("hex");
+
+  try {
+    const user = await User.findOne({
+      forgotPasswordToken: hashToken,
+      forgotPasswordExpiryDate: {
+        $gt: new Date(), // forgotPasswordExpiryToken() less then current date
+      },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid token or token expired",
+      });
+    }
+
+    user.password = password;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "successfully reset the password",
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const logoutController = async (req, res, next) => {
+  try {
+    const cookieOption = {
+      expires: new Date(),
+      httpOnly: true,
+    };
+
+    res.cookie("token", null, cookieOption);
+    return res.status(200).json({
+      success: true,
+      message: "Logout user",
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const getUserController = async (req, res, next) => {
+  const userId = req.user.id;
+  try {
+    const user = await User.findById(userId);
+    return res.status(201).json({
+      success: true,
+      data: user,
+    });
+  } catch (err) {
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+export {
+  signupContoller,
+  signinController,
+  forgotPasswordController,
+  resetPasswordController,
+  logoutController,
+  getUserController,
+};
